@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CLARIFICATION
+  NEEDS_REVIEW
+}
+
+enum ReviewAction {
+  APPROVE
+  REJECT
+  REQUEST_CLARIFICATION
+  OVERRIDE
+}
+
+model Policy {
+  id          String   @id @default(cuid())
+  name        String
+  category    String
+  content     String
+  categoryLimit Float?
+  currency    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  claims Claim[]
+}
+
+model Claim {
+  id               String      @id @default(cuid())
+  claimant         String
+  date             DateTime
+  category         String
+  amount           Float
+  currency         String
+  description      String
+  receiptAvailable Boolean
+  status            ClaimStatus @default(PENDING)
+
+  aiCategory       String?
+  aiConfidence     Float?
+  aiExplanation    String?
+  policyEvidence   String?
+  aiUncertain      Boolean     @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  policy Policy? @relation(fields: [policyId], references: [id])
+  policyId String?
+
+  reviews Review[]
+}
+
+model Review {
+  id        String       @id @default(cuid())
+  claimId   String
+  action    ReviewAction
+  reason    String?
+  createdAt DateTime     @default(now())
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+}
+
+model ReviewHistory {
+  id        String   @id @default(cuid())
+  claimId   String
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+}
