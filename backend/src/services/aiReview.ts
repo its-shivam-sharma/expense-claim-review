@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MODEL = "llama3.2:3b";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
 
 export async function reviewClaimWithAI(claimId: string) {
   const claim = await prisma.claim.findUnique({
@@ -21,6 +21,10 @@ export async function reviewClaimWithAI(claimId: string) {
       currency: true,
     },
   });
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
 
   const prompt = `
 You are an Expense Claim Policy Review Assistant.
@@ -63,36 +67,42 @@ Return exactly this structure:
 }
 `;
 
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      stream: false,
-      format: "json",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a careful expense policy assistant. Always return valid JSON.",
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
         },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }),
-  });
+      }),
+    }
+  );
 
   if (!response.ok) {
-    throw new Error(`Ollama request failed: ${response.status}`);
+    const errorText = await response.text();
+    throw new Error(`Gemini request failed: ${response.status} ${errorText}`);
   }
 
   const data = await response.json();
 
-  const result = JSON.parse(data.message.content);
+  const content =
+    data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!content) {
+    throw new Error("Gemini returned an empty response");
+  }
+
+  const result = JSON.parse(content);
 
   const confidence = Math.max(
     0,
@@ -101,7 +111,8 @@ Return exactly this structure:
 
   const selectedPolicy = policies.find(
     (policy) =>
-      policy.category.toLowerCase() === String(result.category).toLowerCase()
+      policy.category.toLowerCase() ===
+      String(result.category).toLowerCase()
   );
 
   await prisma.claim.update({
@@ -123,7 +134,9 @@ Return exactly this structure:
     explanation: result.explanation,
     policyEvidence: result.policyEvidence,
     needsClarification: Boolean(result.needsClarification),
-    clarificationQuestions: Array.isArray(result.clarificationQuestions)
+    clarificationQuestions: Array.isArray(
+      result.clarificationQuestions
+    )
       ? result.clarificationQuestions
       : [],
   };
