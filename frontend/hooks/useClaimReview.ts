@@ -51,7 +51,7 @@ export function useClaimReview({ claimId, onMessage, onChanged }: Options) {
     });
   }
 
-  function decide(action: ReviewAction) {
+  function decide(action: ReviewAction) { 
     if (ACTIONS_REQUIRING_REASON.includes(action) && !reason.trim()) {
       onMessage("Please enter a reason.");
       return;
